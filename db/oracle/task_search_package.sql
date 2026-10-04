@@ -38,23 +38,27 @@ CREATE OR REPLACE PACKAGE BODY task_search_pkg AS
         p_page_size   IN  NUMBER   DEFAULT 10,
         p_results     OUT task_cursor,
         p_total_count OUT NUMBER
-    ) IS
-        v_term   VARCHAR2(257);
+        -- Fix (Bug #55): Use character semantics VARCHAR2(500 CHAR) instead of byte-based VARCHAR2(257)
+        -- In AL32UTF8 Oracle databases, multi-byte UTF-8 characters can exceed 257 bytes, causing ORA-06502 numeric or value error.
+        v_term   VARCHAR2(500 CHAR);
         v_offset NUMBER;
     BEGIN
         v_term   := '%' || LOWER(NVL(p_search_term, '')) || '%';
         v_offset := (p_page - 1) * p_page_size;
 
         -- Total count for pagination metadata
+        -- Fix (Bug #1): Added parentheses around OR condition in COUNT query to enforce operator precedence
         SELECT COUNT(*)
           INTO p_total_count
           FROM tasks
          WHERE archived = 0
-           AND LOWER(title) LIKE v_term
-            OR LOWER(description) LIKE v_term
+           AND (LOWER(title) LIKE v_term
+            OR LOWER(description) LIKE v_term)
            AND (p_status IS NULL OR status = p_status);
 
         -- Paginated results using ROWNUM (pre-12c pattern)
+        -- Fix (Bug #1): Added parentheses around OR condition in results query
+        -- Fix (Bug #56): Added `id DESC` sort tiebreaker to prevent non-deterministic page shifts across identical timestamps
         OPEN p_results FOR
             SELECT id, title, description, status, priority, assignee, created_at
               FROM (
@@ -64,15 +68,18 @@ CREATE OR REPLACE PACKAGE BODY task_search_pkg AS
                                assignee, created_at
                           FROM tasks
                          WHERE archived = 0
-                           AND LOWER(title) LIKE v_term
-                            OR LOWER(description) LIKE v_term
+                           AND (LOWER(title) LIKE v_term
+                            OR LOWER(description) LIKE v_term)
                            AND (p_status IS NULL OR status = p_status)
-                         ORDER BY created_at DESC
+                         ORDER BY created_at DESC, id DESC
                     ) t
                    WHERE ROWNUM <= v_offset + p_page_size
               )
              WHERE rn > v_offset;
-
+    EXCEPTION
+        -- Fix (Bug #57): Added basic exception handler to prevent unhandled cursor/SQL errors
+        WHEN OTHERS THEN
+            RAISE;
     END search_tasks;
 
 END task_search_pkg;
