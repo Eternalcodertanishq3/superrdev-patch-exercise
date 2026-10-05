@@ -111,9 +111,10 @@ public class TaskController {
      */
     @GetMapping({"/api/tasks/statuses", "/api/v1/tasks/statuses"})
     public ResponseEntity<List<String>> getStatuses() {
-        List<String> statuses = Arrays.stream(TaskStatus.values())
-                .map(Enum::name)
-                .toList();
+        List<String> statuses = new ArrayList<>();
+        for (TaskStatus s : TaskStatus.values()) {
+            statuses.add(s.name());
+        }
         return ResponseEntity.ok(statuses);
     }
 
